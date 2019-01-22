@@ -22,6 +22,7 @@ class Worker(multiprocessing.Process):
         self.queue = queue
         self.stop_event = multiprocessing.Event()
         self.is_loggedin = False
+        self.driver = None
 
     def stop(self):
         """
@@ -31,23 +32,29 @@ class Worker(multiprocessing.Process):
     def run(self):
         """
         """
+        # attempt to log in
+        self.is_loggedin = self.__login()
 
         #TODO implement logging in one time only
         #TODO implement moving files to new folder with ticker name
-        while not self.stop_event.is_set():
+        while not self.stop_event.is_set() and self.is_loggedin:
+
             if not self.queue.empty():
                 ticker = self.queue.get()
-    
+        
                 # execute search and download
-                self.__search(ticker)
+                self.__search(self.driver, ticker)
             else:
                 self.stop()
 
-    def __search(self, ticker: str):
-        """
-        """
-        print("[{0}] is searching for {1}".format(current_process().name, ticker))
-        
+        # quit driver after everything is done
+        if self.is_loggedin:
+            self.driver.quit() #close the driver
+
+    def __login(self):
+
+        print("[{0}] is logging in to the system".format(current_process().name))
+
         #set up chrome optins to download files
         options = webdriver.ChromeOptions()
         options.add_experimental_option(
@@ -77,27 +84,62 @@ class Worker(multiprocessing.Process):
                 EC.title_is("Value Line - Research - Dashboard")
             )
 
-            # navigate to the first stock page
-            #TODO injecting value causes issue
-            search_link = config.SEARCH_URL.format(ticker)
-            driver.get(search_link)
+            # set the driver for the worker
+            self.driver = driver
+            print("[{0}] successfully logged in".format(current_process().name))
+            return True
 
-            # wait maximum 20 seconds and search for the pdf module div
+        except TimeoutException:
+            #TODO return error in error queue
+            print("[{0}] error: login timed out ".format(current_process().name))
+            return False
+
+    def __reset(self, driver: webdriver, ticker: str):
+        """
+        """
+        try:
+
+            #TODO make this config?
+            driver.get('https://research-valueline-com.library.access.arlingtonva.us/secure/research')
+
+            # wait maximum 20 seconds for SSO login/redirect to occur
             #TODO catch timeout exception
-            pdfs_div = WebDriverWait(driver, self.timeout).until(
-                EC.visibility_of_element_located((By.XPATH, './/div[@data-module-name="HistoricalPdfs1View"]'))
+            WebDriverWait(driver, self.timeout).until(
+                EC.title_is("Value Line - Research - Browse Research")
             )
 
-            # locate pdf download table and get all first columns' anchor elements
-            anchors = pdfs_div.find_elements_by_xpath(".//table[contains(@class, 'report-results')]//td[1]//a")
-    
-            # loop through all anchor tags and download using href link
-            for anchor in anchors:
-                link = anchor.get_attribute("href")
-                self.__download(driver, ticker, link, anchor.text)
+        except TimeoutException:
+            #TODO return error in error queue
+            print("[{0}] error: search could not be reset after search of {1}".format(current_process().name), ticker)
 
-        finally:
-            driver.quit() #close the driver
+
+    def __search(self, driver: webdriver, ticker: str):
+        """
+        """
+        print("[{0}] is searching for {1}".format(current_process().name, ticker))
+        
+        # navigate to the first stock page
+        #TODO injecting value causes issue
+        search_link = config.SEARCH_URL.format(ticker)
+        driver.get(search_link)
+
+        # wait maximum 20 seconds and search for the pdf module div
+        #TODO catch timeout exception
+        pdfs_div = WebDriverWait(driver, self.timeout).until(
+            EC.visibility_of_element_located((By.XPATH, './/div[@data-module-name="HistoricalPdfs1View"]'))
+        )
+
+        # locate pdf download table and get all first columns' anchor elements
+        anchors = pdfs_div.find_elements_by_xpath(".//table[contains(@class, 'report-results')]//td[1]//a")
+    
+        # loop through all anchor tags and download using href link
+        for anchor in anchors:
+            link = anchor.get_attribute("href")
+            self.__download(driver, ticker, link, anchor.text)
+
+        # reset the search
+        self.__reset(driver, ticker)
+
 
     def __download(self, driver: webdriver, ticker: str, link: str, anchor_text: str):
         """
@@ -114,6 +156,7 @@ class Worker(multiprocessing.Process):
         # max dl wait time ~5 seconds
         dl_wait = 5
 
+        #TODO rework this logic
         while dl_count > 0:
             if not dl_wait < 0:
                 time.sleep(1)
@@ -143,6 +186,7 @@ def main():
     """
     work_queue = multiprocessing.JoinableQueue()
     work_queue.put('AAPL')
+    work_queue.put('MSFT')
     worker = Worker(config.BASE_DOWNLOAD_PATH, config.TIMEOUT, work_queue)
     worker.start()
 
