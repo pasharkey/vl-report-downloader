@@ -34,10 +34,12 @@ class Worker(multiprocessing.Process):
     def run(self):
         """
         """
+        # create worker download directory
+        self.__create_default_dir()
+
         # attempt to log in
         self.is_loggedin = self.__login()
 
-        #TODO implement moving files to new folder with ticker name
         while not self.stop_event.is_set() and self.is_loggedin:
 
             if not self.queue.empty():
@@ -52,8 +54,21 @@ class Worker(multiprocessing.Process):
         if self.is_loggedin:
             self.driver.quit() #close the driver
 
-    def __login(self):
+    def __create_default_dir(self):
+        """
+        """
+        worker_download_path = self.base_download_path + current_process().name + "/"
+        # create directory if it does not exist
+        if not os.path.exists(worker_download_path):
+            os.makedirs(worker_download_path)
 
+        # update base download path
+        self.base_download_path = worker_download_path
+
+
+    def __login(self):
+        """
+        """
         print("[{0}] logging in to the system".format(current_process().name))
 
         #set up chrome optins to download files
@@ -79,8 +94,7 @@ class Worker(multiprocessing.Process):
         driver.find_element_by_tag_name("form").submit()
 
         try:
-            # wait maximum 20 seconds for SSO login/redirect to occur
-            #TODO catch timeout exception
+            # wait maximum timeout for SSO login/redirect to occur
             WebDriverWait(driver, self.timeout).until(
                 EC.title_is("Value Line - Research - Dashboard")
             )
@@ -91,7 +105,6 @@ class Worker(multiprocessing.Process):
             return True
 
         except TimeoutException:
-            #TODO return error in error queue
             print("[{0}] error: login timed out ".format(current_process().name))
             return False
 
@@ -101,15 +114,12 @@ class Worker(multiprocessing.Process):
         try:
             driver.get(config.RESET_URL)
 
-            #TODO catch timeout exception
             WebDriverWait(driver, self.timeout).until(
                 EC.title_is("Value Line - Research - Browse Research")
             )
 
         except TimeoutException:
-            #TODO return error in error queue
-            print("[{0}] error: search could not be reset after search of {1}".format(current_process().name), ticker)
-
+            print("[{0}] error: reset after search of {1} timed out after {2} seconds".format(current_process().name), ticker, self.timeout)
 
     def __search(self, driver: webdriver, ticker: str):
         """
@@ -117,15 +127,17 @@ class Worker(multiprocessing.Process):
         print("[{0}] searching for {1}".format(current_process().name, ticker))
         
         # navigate to the first stock page
-        #TODO injecting value causes issue
         search_link = config.SEARCH_URL.format(ticker)
         driver.get(search_link)
 
-        # wait maximum 20 seconds and search for the pdf module div
-        #TODO catch timeout exception
-        pdfs_div = WebDriverWait(driver, self.timeout).until(
-            EC.visibility_of_element_located((By.XPATH, './/div[@data-module-name="HistoricalPdfs1View"]'))
-        )
+        # search for the pdf module div and wait maximum timeout
+        try:
+            pdfs_div = WebDriverWait(driver, self.timeout).until(
+                EC.visibility_of_element_located((By.XPATH, './/div[@data-module-name="HistoricalPdfs1View"]'))
+            )
+
+        except TimeoutException:
+            print("[{0}] error: could not locate pdf module for {1} within {2} seconds".format(current_process().name), ticker, self.timeout)
 
         # locate pdf download table and get all first columns' anchor elements
         anchors = pdfs_div.find_elements_by_xpath(".//table[contains(@class, 'report-results')]//td[1]//a")
@@ -155,37 +167,33 @@ class Worker(multiprocessing.Process):
         dl_count = len(glob.glob1(self.base_download_path, partial_file))
 
         # max dl wait time ~5 seconds
-        dl_wait = 5
+        dl_wait = 0
 
-        #TODO rework this logic
         while dl_count > 0:
-            if not dl_wait < 0:
+            if dl_wait < 5:
                 time.sleep(1)
-                dl_wait -= 1 #decrement wait 
+                dl_wait += 1 # increment wait counter
                 dl_count = len(glob.glob1(self.base_download_path, partial_file))
                 self.__rename_file(filename)
             else:                
-                print("[{0}] error downloading {1}, file did not finishing downloading witin 5 seconds".format(current_process().name, filename))
-                #TODO add error to the error queue
+                print("[{0}] error: {1} did not finish downloading witin 5 seconds".format(current_process().name, filename))
+                break
                 
     def __rename_file(self, filename: str):
         """
         """
-        default_name = "report.pdf" #default download name
+        default_name = "report.pdf" # default download name
 
         if glob.glob(self.base_download_path + default_name):
             os.rename(self.base_download_path + default_name, self.base_download_path  + filename + ".pdf") 
         else:
-            print("[{0}] error renaming file, file {1} does not exist".format(current_process().name, self.base_download_path + default_name))
-            #TODO add error to error queue
+            print("[{0}] error: attempted to rename file {1} that does not exist".format(current_process().name, self.base_download_path + default_name))
 
     def __move_files(self, ticker: str):
         """
         """
         # find all downloaded ticker files and move thme
         files = glob.glob('{0}{1}*.pdf'.format(self.base_download_path, ticker))
-
-        print("Files found: " + str(files))
 
         if files:
             dest_ticker_path = '{0}{1}'.format(self.dest_path, ticker)
@@ -197,15 +205,20 @@ class Worker(multiprocessing.Process):
             # move the files
             for f in files:
                 shutil.move(f, dest_ticker_path)
-                print("[{0}] moved {1} to {2}".format(current_process().name, f, dest_ticker_path))
+                #print("[{0}] moved {1} to {2}".format(current_process().name, f, dest_ticker_path))
 def main():
     """
     """
     work_queue = multiprocessing.JoinableQueue()
+    workers = []
+
+    for w in range(0, 2):
+        worker = Worker(config.BASE_DOWNLOAD_PATH, config.DEST_PATH, config.TIMEOUT, work_queue)
+        workers.append(worker)
+        worker.start()
+
     work_queue.put('AAPL')
     work_queue.put('MSFT')
-    worker = Worker(config.BASE_DOWNLOAD_PATH, config.DEST_PATH, config.TIMEOUT, work_queue)
-    worker.start()
 
 
 if __name__ == "__main__":
