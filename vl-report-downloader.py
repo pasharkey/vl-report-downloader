@@ -227,7 +227,7 @@ def create_ticker_list(ticker_csv: str):
 def main():
     """
     """
-    tickers = create_ticker_list('/home/HQ/psharkey/Development/personal/vl-report-downloader/tickers/nasdaq.csv')
+    tickers = create_ticker_list(config.NYSE_CSV)
     work_queue = multiprocessing.JoinableQueue()
     workers = []
 
