@@ -4,6 +4,7 @@ import time
 import os
 import multiprocessing
 import shutil
+import csv
 
 from multiprocessing import current_process
 from selenium import webdriver
@@ -48,10 +49,12 @@ class Worker(multiprocessing.Process):
                 # execute search and download
                 self.__search(self.driver, ticker)
             else:
+                #TODO clean up worker download directory
                 self.stop()
 
         # quit driver after everything is done
         if self.is_loggedin:
+            print("[{0}] is terminated".format(current_process().name))
             self.driver.quit() #close the driver
 
     def __create_default_dir(self):
@@ -136,23 +139,23 @@ class Worker(multiprocessing.Process):
                 EC.visibility_of_element_located((By.XPATH, './/div[@data-module-name="HistoricalPdfs1View"]'))
             )
 
-        except TimeoutException:
-            print("[{0}] error: could not locate pdf module for {1} within {2} seconds".format(current_process().name), ticker, self.timeout)
-
-        # locate pdf download table and get all first columns' anchor elements
-        anchors = pdfs_div.find_elements_by_xpath(".//table[contains(@class, 'report-results')]//td[1]//a")
+             # locate pdf download table and get all first columns' anchor elements
+            anchors = pdfs_div.find_elements_by_xpath(".//table[contains(@class, 'report-results')]//td[1]//a")
     
-        # loop through all anchor tags and download using href link
-        for anchor in anchors:
-            link = anchor.get_attribute("href")
-            self.__download(driver, ticker, link, anchor.text)
+            # loop through all anchor tags and download using href link
+            for anchor in anchors:
+                link = anchor.get_attribute("href")
+                self.__download(driver, ticker, link, anchor.text)
 
-        # move the files
-        self.__move_files(ticker)
+            # move the files
+            self.__move_files(ticker)
 
-        # reset the search
-        self.__reset(driver, ticker)
+            # reset the search
+            self.__reset(driver, ticker)
 
+        except TimeoutException:
+            print("[{0}] error: could not locate pdf module for {1} within {2} seconds".format(current_process().name, ticker, self.timeout))
+            pass
 
     def __download(self, driver: webdriver, ticker: str, link: str, anchor_text: str):
         """
@@ -206,9 +209,25 @@ class Worker(multiprocessing.Process):
             for f in files:
                 shutil.move(f, dest_ticker_path)
                 #print("[{0}] moved {1} to {2}".format(current_process().name, f, dest_ticker_path))
+
+def create_ticker_list(ticker_csv: str):
+    """
+    """
+    ticker_list = []
+
+    with open(ticker_csv, 'r') as f:
+        reader = csv.reader(f, delimiter=',')
+        #skip first line in csv
+        next(reader) 
+        for row in reader:
+            ticker_list.append(row[0])
+
+    return ticker_list
+
 def main():
     """
     """
+    tickers = create_ticker_list('/home/HQ/psharkey/Development/personal/vl-report-downloader/tickers/nasdaq.csv')
     work_queue = multiprocessing.JoinableQueue()
     workers = []
 
@@ -217,9 +236,14 @@ def main():
         workers.append(worker)
         worker.start()
 
-    work_queue.put('AAPL')
-    work_queue.put('MSFT')
+        #sleep to allow worker to log in
+        time.sleep(2)
 
+    for ticker in tickers:
+        work_queue.put(ticker)
+
+    #work_queue.put('AAPL')
+    #work_queue.put('MSFT')
 
 if __name__ == "__main__":
     main()
