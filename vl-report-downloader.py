@@ -10,7 +10,7 @@ from multiprocessing import current_process
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
@@ -120,7 +120,7 @@ class Worker(multiprocessing.Process):
 
         except TimeoutException:
             print("[{0}] error: reset after search of {1} timed out after {2} "
-                "seconds".format(current_process().name, ticker, conifg.RESET_TIMEOUT))
+                "seconds".format(current_process().name, ticker, config.RESET_TIMEOUT))
             pass
 
     def __search(self, driver: webdriver, ticker: str):
@@ -150,9 +150,11 @@ class Worker(multiprocessing.Process):
                 # move the files
                 self.__move_files(ticker)
 
-            except exceptions.StaleElementReferenceException: 
+            except StaleElementReferenceException: 
                 print("[{0}] error: stale element exception for {1}".formt(current_process().name, ticker))
                 pass
+
+                #TODO do I have to clear files?
 
         except TimeoutException:
             print("[{0}] error: could not locate pdf module for {1} within {2} "
@@ -184,24 +186,28 @@ class Worker(multiprocessing.Process):
     def __rename_file(self, filename: str):
         """
         """
-        current_path = self.worker_download_path + "report.pdf" # default download name
+        # TODO figure out report(1).pdf bug
+        temp_file = glob.glob(self.worker_download_path + "report*.pdf")
 
-        if glob.glob(current_path):
+        if len(temp_file) == 1:
 
             final_path = self.worker_download_path  + filename + ".pdf"
-            os.rename(current_path, final_path) 
+            os.rename(temp_file[0], final_path) 
 
             # wait until file exists
             # TODO timeout after certain time
             while not os.path.exists(final_path):
                 time.sleep(1)
 
-            return True
+        elif len(temp_file) > 1:
+            print("[{0}] error: foudn multiple files with pattern report*.pdf at {1}"
+                "exist".format(current_process().name, self.worker_download_path))
+
+            #TODO remove all files to fix issue
 
         else:
-            print("[{0}] error: attempted to rename file {1} that does not "
-                "exist".format(current_process().name, current_path))
-            return False
+            print("[{0}] error: attempted to rename file report*.pdf that does not "
+                "exist".format(current_process().name))
 
     def __move_files(self, ticker: str):
         """
@@ -228,6 +234,7 @@ def create_ticker_list(ticker_csv: str):
 
     with open(ticker_csv, 'r') as f:
         reader = csv.reader(f, delimiter=',')
+
         #skip first line in csv
         next(reader) 
         for row in reader:
