@@ -169,19 +169,25 @@ class Worker(multiprocessing.Process):
         """
         filename = ticker + "-" + anchor_text  # filename will be in the format <stock ticker>-<date>
         partial_file = "*.crdownload"
+        report_file = "report*.pdf"
 
         # execute download
         driver.get(link)
     
         print("[{0}] downloading {1}-{2}.pdf".format(current_process().name, ticker, anchor_text))
-        dl_count = len(glob.glob1(self.worker_download_path, partial_file))
 
-        while dl_count > 0:
+        report_present = len(glob.glob1(self.worker_download_path, report_file))
+
+        while not report_present: 
                 time.sleep(1)
-                dl_count = len(glob.glob1(self.worker_download_path, partial_file))
-        
-        #vrename the donwloaded file
-        self.__rename_file(filename)
+                report_present = len(glob.glob1(self.worker_download_path, report_file))
+
+        #TODO FIX THIS ERROR
+        if report_present > 1:
+            print("more than one report error")
+        else: 
+            #rename the donwloaded file
+            self.__rename_file(filename)
                 
     def __rename_file(self, filename: str):
         """
@@ -192,22 +198,24 @@ class Worker(multiprocessing.Process):
         if len(temp_file) == 1:
 
             final_path = self.worker_download_path  + filename + ".pdf"
+            print("[{0}] renaming {1} to {2}".format(current_process().name, temp_file[0], final_path))
             os.rename(temp_file[0], final_path) 
 
             # wait until file exists
             # TODO timeout after certain time
-            while not os.path.exists(final_path):
+            while os.path.exists(temp_file[0]):
+                print("[{0}] waiting for {1} to be renamed to {2}".format(current_process().name, temp_file[0], final_path))
                 time.sleep(1)
 
         elif len(temp_file) > 1:
-            print("[{0}] error: foudn multiple files with pattern report*.pdf at {1}"
-                "exist".format(current_process().name, self.worker_download_path))
+            print("[{0}] error: multiple files with pattern report*.pdf at {1}"
+                "exist, {2}".format(current_process().name, self.worker_download_path, str(temp_file)))
 
             #TODO remove all files to fix issue
 
         else:
             print("[{0}] error: attempted to rename file report*.pdf that does not "
-                "exist".format(current_process().name))
+                "exist {1}".format(current_process().name, temp_file))
 
     def __move_files(self, ticker: str):
         """
@@ -225,7 +233,7 @@ class Worker(multiprocessing.Process):
             # move the files
             for f in files:
                 shutil.move(f, dest_ticker_path)
-                #print("[{0}] moved {1} to {2}".format(current_process().name, f, dest_ticker_path))
+                print("[{0}] moved {1} to {2}".format(current_process().name, f, dest_ticker_path))
 
 def create_ticker_list(ticker_csv: str):
     """
@@ -260,7 +268,7 @@ def main():
     for ticker in tickers:
         work_queue.put(ticker)
 
-    #work_queue.put('MAXR')
+    #work_queue.put('ACIA')
     #work_queue.put('ABIL')
     #work_queue.put('AAPL')
     #work_queue.put('XO')
