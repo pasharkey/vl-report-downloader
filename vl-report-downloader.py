@@ -50,7 +50,7 @@ class Worker(multiprocessing.Process):
                 self.__search(self.driver, ticker)
             else:
                 #TODO clean up worker download directory
-                print("[{0}] queue is empty stopping worker".format(current_process().name))
+                print("{0} [INFO] ticker queue is empty, stopping worker".format(current_process().name))
                 self.stop()
 
         # quit driver after everything is done
@@ -67,7 +67,7 @@ class Worker(multiprocessing.Process):
     def __login(self):
         """
         """
-        print("[{0}] logging in to the system".format(current_process().name))
+        print("{0} [INFO] logging in to the system".format(current_process().name))
 
         #set up chrome optins to download files
         options = webdriver.ChromeOptions()
@@ -99,11 +99,11 @@ class Worker(multiprocessing.Process):
 
             # set the driver for the worker
             self.driver = driver
-            print("[{0}] successfully logged in".format(current_process().name))
+            print("{0} [INFO] successfully logged in".format(current_process().name))
             return True
 
         except TimeoutException:
-            print("[{0}] error: login timed out ".format(current_process().name))
+            print("{0} [ERROR] login timed out ".format(current_process().name))
             return False
 
     def __reset(self, driver: webdriver, ticker: str):
@@ -112,21 +112,21 @@ class Worker(multiprocessing.Process):
         try:
             driver.get(config.RESET_URL)
 
-            print("[{0}] resetting search".format(current_process().name))
+            print("{0} [INFO] resetting search from [{1}]".format(current_process().name, ticker))
 
             WebDriverWait(driver, config.RESET_TIMEOUT).until(
                 EC.title_is("Value Line - Research - Browse Research")
             )
 
         except TimeoutException:
-            print("[{0}] error: reset after search of {1} timed out after {2} "
+            print("{0} [ERROR] reset after search of [{1}] timed out after {2} "
                 "seconds".format(current_process().name, ticker, config.RESET_TIMEOUT))
             pass
 
     def __search(self, driver: webdriver, ticker: str):
         """
         """
-        print("[{0}] searching for {1}".format(current_process().name, ticker))
+        print("{0} [INFO] searching for [{1}]".format(current_process().name, ticker))
         
         # navigate to the first stock page
         search_link = config.SEARCH_URL.format(ticker)
@@ -151,13 +151,13 @@ class Worker(multiprocessing.Process):
                 self.__move_files(ticker)
 
             except StaleElementReferenceException: 
-                print("[{0}] error: stale element exception for {1}".formt(current_process().name, ticker))
+                print("{0} [ERROR] stale element exception for {1}".formt(current_process().name, ticker))
                 pass
 
-                #TODO do I have to clear files?
+                #TODO clear the files?
 
         except TimeoutException:
-            print("[{0}] error: could not locate pdf module for {1} within {2} "
+            print("{0} [WARN] could not locate pdf module for {1} within {2} "
                 "seconds".format(current_process().name, ticker, config.SEARCH_TIMEOUT))
             pass
 
@@ -168,13 +168,12 @@ class Worker(multiprocessing.Process):
         """
         """
         filename = ticker + "-" + anchor_text  # filename will be in the format <stock ticker>-<date>
-        partial_file = "*.crdownload"
         report_file = "report*.pdf"
 
         # execute download
         driver.get(link)
     
-        print("[{0}] downloading {1}-{2}.pdf".format(current_process().name, ticker, anchor_text))
+        print("{0} [INFO] downloading {1}-{2}.pdf".format(current_process().name, ticker, anchor_text))
 
         report_present = len(glob.glob1(self.worker_download_path, report_file))
 
@@ -182,9 +181,9 @@ class Worker(multiprocessing.Process):
                 time.sleep(1)
                 report_present = len(glob.glob1(self.worker_download_path, report_file))
 
-        #TODO FIX THIS ERROR
         if report_present > 1:
-            print("more than one report error")
+            print("{0} [ERROR] found {1} reports in download folder for {2}".format(current_process().name, report_present, ticker))
+            #TODO handle this edge case
         else: 
             #rename the donwloaded file
             self.__rename_file(filename)
@@ -198,23 +197,23 @@ class Worker(multiprocessing.Process):
         if len(temp_file) == 1:
 
             final_path = self.worker_download_path  + filename + ".pdf"
-            print("[{0}] renaming {1} to {2}".format(current_process().name, temp_file[0], final_path))
+            print("{0} [INFO] renaming {1} to {2}".format(current_process().name, temp_file[0], final_path))
             os.rename(temp_file[0], final_path) 
 
             # wait until file exists
             # TODO timeout after certain time
             while os.path.exists(temp_file[0]):
-                print("[{0}] waiting for {1} to be renamed to {2}".format(current_process().name, temp_file[0], final_path))
+                print("{0} [INFO] waiting for {1} to be renamed to {2}".format(current_process().name, temp_file[0], final_path))
                 time.sleep(1)
 
         elif len(temp_file) > 1:
-            print("[{0}] error: multiple files with pattern report*.pdf at {1}"
+            print("{0} [ERROR] multiple files with pattern report*.pdf at {1}"
                 "exist, {2}".format(current_process().name, self.worker_download_path, str(temp_file)))
 
             #TODO remove all files to fix issue
 
         else:
-            print("[{0}] error: attempted to rename file report*.pdf that does not "
+            print("{0} [ERRPR] attempted to rename file report*.pdf that does not "
                 "exist {1}".format(current_process().name, temp_file))
 
     def __move_files(self, ticker: str):
@@ -233,7 +232,7 @@ class Worker(multiprocessing.Process):
             # move the files
             for f in files:
                 shutil.move(f, dest_ticker_path)
-                print("[{0}] moved {1} to {2}".format(current_process().name, f, dest_ticker_path))
+                print("{0} [INFO] moved {1} to {2}".format(current_process().name, f, dest_ticker_path))
 
 def create_ticker_list(ticker_csv: str):
     """
@@ -253,19 +252,14 @@ def create_ticker_list(ticker_csv: str):
 def main():
     """
     """
-    tickers = create_ticker_list(config.NASDAQ_CSV)
+    nasdaq_tickers = create_ticker_list(config.NASDAQ_CSV)
+    nyse_tickers = create_ticker_list(config.NYSE_CSV)
+
     work_queue = multiprocessing.JoinableQueue()
     workers = []
 
-    for w in range(0, 2):
-        worker = Worker(config.BASE_DOWNLOAD_PATH, work_queue)
-        workers.append(worker)
-        worker.start()
-
-        #sleep to allow worker to log in
-        time.sleep(2)
-
-    for ticker in tickers:
+    # add tickers to the queue
+    for ticker in nyse_tickers:
         work_queue.put(ticker)
 
     #work_queue.put('ACIA')
@@ -273,6 +267,16 @@ def main():
     #work_queue.put('AAPL')
     #work_queue.put('XO')
     #work_queue.put('PHIL')
+
+    for w in range(0, 5):
+        worker = Worker(config.BASE_DOWNLOAD_PATH, work_queue)
+        workers.append(worker)
+        worker.start()
+
+        #sleep to allow worker to log in
+        time.sleep(2)
+
+
 
 if __name__ == "__main__":
     main()

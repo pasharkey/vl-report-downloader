@@ -1,9 +1,30 @@
+#########################
+# Login credentials
+#########################
 LOGIN_NUMBER=
 LOGIN_PIN=
+
+#########################
+# Static URLS
+#########################
 LOGIN_URL='https://login.library.access.arlingtonva.us/login?qurl=https%3a%2f%2fjump.valueline.com%2flogin.aspx%3f%26o%3dresearch%26lp%3dsecure%2fdashboard'
 SEARCH_URL='https://research-valueline-com.library.access.arlingtonva.us/secure/research#sym={0}&list=recent&sec=company'
-RESET_URL=''https://research-valueline-com.library.access.arlingtonva.us/secure/research'
-BASE_DOWNLOAD_PATH=
-DEST_PATH=
-TIMEOUT=20
+RESET_URL='https://research-valueline-com.library.access.arlingtonva.us/secure/research'
 
+#########################
+# Local download paths
+#########################
+BASE_DOWNLOAD_PATH='
+
+#########################
+# Stock ticker CSV
+#########################
+NASDAQ_CSV='
+NYSE_CSV='
+
+#########################
+# Timeout configurations
+#########################
+LOGIN_TIMEOUT=20
+SEARCH_TIMEOUT=10
+RESET_TIMEOUT=5
